@@ -1,0 +1,11 @@
+{
+    "label": "Code Examples",
+    "position": 2,
+    "link": {
+      "type": "generated-index",
+      "title": "Code Examples",
+      "description": "Check out some random code",
+      "image": "/img/ml_terms.svg"
+    },
+    "className": "category-page"
+}
