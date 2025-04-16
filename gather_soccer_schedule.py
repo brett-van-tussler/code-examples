@@ -6,7 +6,7 @@ def generate_schedule(num_teams):
     if num_teams != 8:
         raise ValueError("This scheduler is designed specifically for 8 teams")
     
-    # Create list of teams
+    # Create teams list
     teams = [f"Team {i+1}" for i in range(num_teams)]
     
     # Initialize schedule

@@ -1,63 +1,80 @@
 name: Convert and Update Markdown
-
 on:
   push:
     branches: [ main ]
-
 jobs:
   convert-and-update:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # This gives permission to push to branches
     steps:
-      # Checkout main branch with full history
+      # Checkout with full history
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Needed for branch operations
+          fetch-depth: 0
 
-      # Set up Python
+      # Python setup
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
       # Install dependencies
-      - name: Install dependencies
-        run: |
-          pip install jupyter jupytext nbconvert
+      - name: Install converters
+        run: pip install jupyter nbconvert
 
-      # Convert files to markdown
+      # Convert files
       - name: Convert to Markdown
         run: |
-          # Convert notebooks
-          find . -name '*.ipynb' -exec jupyter nbconvert --to markdown --no-execute {} \;
+          # Notebooks → Markdown
+          find . -name '*.ipynb' -exec jupyter nbconvert --to markdown {} \;
           
-          # Convert Python files
+          # Python → Markdown (with code fences)
           find . -name '*.py' ! -name 'config.json' -exec bash -c '
-            echo "\`\`\`python" > "{}.md"
-            cat "{}" >> "{}.md"
-            echo "\`\`\`" >> "{}.md"
-          ' \;
+            for f; do
+              echo "\`\`\`python" > "${f}.md"
+              cat "$f" >> "${f}.md"
+              echo "\`\`\`" >> "${f}.md"
+            done
+          ' bash {} +
 
-      # Update markdown branch incrementally
+      # Update markdown branch safely
       - name: Update markdown branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Use GITHUB_TOKEN instead of CODE_EXAMPLES_DESTINATION
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          
-          # Create markdown branch if it doesn't exist
-          if ! git show-ref --quiet refs/remotes/origin/markdown; then
+          # Use token for authentication
+          git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}
+
+          # Create markdown branch if missing
+          if ! git ls-remote --exit-code --heads origin markdown; then
             git checkout --orphan markdown
-            git commit --allow-empty -m "Initial empty commit"
+            git commit --allow-empty -m "Initial commit"
             git push origin markdown
             git checkout main
           fi
-          
+
           # Switch to markdown branch
           git checkout markdown
           
-          # Get the converted files from main branch
-          git checkout main -- *.md *.ipynb.md config.json
+          # Get list of current .md files in markdown branch
+          find . -maxdepth 1 -name '*.md' > existing_files.txt
           
-          # Commit and push only if there are changes
+          # Copy new/updated files from main
+          git checkout main -- *.md config.json 2>/dev/null || true
+          
+          # Identify obsolete files (exists in markdown but not in main)
+          comm -23 \
+            <(sort existing_files.txt) \
+            <(git ls-tree -r main --name-only | grep '\.md$' | sort) \
+            | xargs -r rm -f
+          
+          # Cleanup temporary file
+          rm existing_files.txt
+          
+          # Commit changes
           git add .
           if ! git diff-index --quiet HEAD --; then
             git commit -m "Update markdown files [auto]"
@@ -65,6 +82,64 @@ jobs:
           else
             echo "No changes to commit"
           fi
-          
-          # Return to main branch
           git checkout main
+
+      - name: Checkout docs repository
+        id: docs-repo-ch
+        uses: actions/checkout@v4
+        with:
+          repository: brett-van-tussler/brett-van-tussler.github.io
+          path: docs-repo
+          token: ${{ secrets.GITHUB_TOKEN }}  # Try using the default token first
+          persist-credentials: true
+
+      - name: Debug repository access
+        env:
+          GH_DEBUG_TOKEN: ${{ secrets.CODE_EXAMPLES }}
+        run: |
+          if [ -z "$GH_DEBUG_TOKEN" ]; then
+            echo "Token is empty!"
+            exit 1
+          fi
+          
+          echo "Token length: ${#GH_DEBUG_TOKEN}"
+          echo "Testing repository access with token..."
+          curl -s -H "Authorization: Bearer $GH_DEBUG_TOKEN" \
+               -H "Accept: application/vnd.github.v3+json" \
+               https://api.github.com/user
+
+      - name: Check token status
+        run: |
+          echo "Checking token status..."
+          if [ -n "${{ secrets.BRETT_VAN_TUSSLER_GITHUB_IO_TOKEN }}" ]; then
+            echo "✓ BRETT_VAN_TUSSLER_GITHUB_IO_TOKEN exists"
+          else
+            echo "✗ BRETT_VAN_TUSSLER_GITHUB_IO_TOKEN is missing"
+            exit 1
+          fi
+
+      - name: Sync to docs repository
+        run: |
+          mkdir -p docs-repo/docs/code-examples
+          
+          # Sync markdown files (delete removed files)
+          rsync -r --delete --exclude='.git' \
+            --include='*.md' --include='_category_.json' --exclude='*' \
+            ./ docs-repo/docs/code-examples/
+
+      - name: Commit docs changes
+        working-directory: docs-repo
+        env:
+          GH_TOKEN: ${{ secrets.BRETT_VAN_TUSSLER_GITHUB_IO_TOKEN }}  # Use the correct token
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git remote set-url origin https://x-access-token:${GH_TOKEN}@github.com/brett-van-tussler/brett-van-tussler.github.io.git
+          
+          git add --all
+          if ! git diff-index --quiet HEAD --; then
+            git commit -m "Update code examples [auto]"
+            git push
+          else
+            echo "No changes to docs repository"
+          fi
