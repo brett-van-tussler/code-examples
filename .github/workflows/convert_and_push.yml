@@ -8,10 +8,10 @@ jobs:
   convert-and-update:
     runs-on: ubuntu-latest
     steps:
-      # Checkout main branch (source files)
+      # Checkout main branch with full history
       - uses: actions/checkout@v4
         with:
-          ref: main
+          fetch-depth: 0  # Needed for branch operations
 
       # Set up Python
       - name: Set up Python
@@ -37,31 +37,34 @@ jobs:
             echo "\`\`\`" >> "{}.md"
           ' \;
 
-      # Checkout markdown branch and update files
+      # Update markdown branch incrementally
       - name: Update markdown branch
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
           
-          # Checkout markdown branch
-          git fetch origin markdown || true
-          if git show-ref --verify --quiet refs/remotes/origin/markdown; then
-            git checkout markdown
-            git pull origin markdown
-          else
+          # Create markdown branch if it doesn't exist
+          if ! git show-ref --quiet refs/remotes/origin/markdown; then
             git checkout --orphan markdown
-            git rm -rf --quiet .  # Only runs for new branch
+            git commit --allow-empty -m "Initial empty commit"
+            git push origin markdown
+            git checkout main
           fi
           
-          # Copy only markdown files and config.json
-          find ../main -name '*.md' -exec cp --parents {} . \;
-          cp ../main/config.json .
+          # Switch to markdown branch
+          git checkout markdown
           
-          # Commit changes
+          # Get the converted files from main branch
+          git checkout main -- *.md *.ipynb.md config.json
+          
+          # Commit and push only if there are changes
           git add .
-          if git diff-index --quiet HEAD --; then
-            echo "No changes to commit"
-          else
+          if ! git diff-index --quiet HEAD --; then
             git commit -m "Update markdown files [auto]"
             git push origin markdown
+          else
+            echo "No changes to commit"
           fi
+          
+          # Return to main branch
+          git checkout main
