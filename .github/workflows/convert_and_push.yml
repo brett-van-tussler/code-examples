@@ -1,0 +1,61 @@
+name: Convert and Push to Docs Repo
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  convert-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout source repo
+      - name: Checkout code-examples
+        uses: actions/checkout@v4
+
+      # Set up Python + dependencies
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install jupyter nbconvert
+
+      # Convert .ipynb to .md
+      - name: Convert notebooks to Markdown
+        run: |
+          find . -name '*.ipynb' -exec jupyter nbconvert --to markdown {} \;
+
+      # (Optional) Convert .py to .md with syntax highlighting
+      - name: Convert Python scripts to Markdown
+        run: |
+          find . -name '*.py' -exec bash -c 'echo "\`\`\`python\n$(cat {})\n\`\`\`" > {}.md' \;
+
+      # Clone destination repo (your GitHub Pages repo)
+      - name: Clone destination repo
+        run: |
+          git clone https://github.com/brett-van-tussler/brett-van-tussler.github.io.git
+
+
+      # Copy converted files to /docs/code_examples/
+      - name: Copy files to destination
+        run: |
+          # Clear only the code_examples subfolder (preserves other docs)
+          rm -rf brett-van-tussler.github.io/docs/code_examples/*
+          # Copy with folder structure
+          find . -name '*.md' -exec bash -c '
+            target_dir="brett-van-tussler.github.io/docs/code_examples/$(dirname {})"
+            mkdir -p "$target_dir"
+            cp {} "$target_dir/"
+          ' \;
+
+      # Push changes
+      - name: Commit and push
+        run: |
+          cd brett-van-tussler.github.io
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add docs/code_examples/
+          git commit -m "Auto-update code examples from code-examples repo"
+          git push https://${{ secrets.BRETTVANTUSSLER_GITHUB_IO_DESTINATION }}@github.com/brett-van-tussler/brett-van-tussler.github.io.git main
