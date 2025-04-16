@@ -1,61 +1,67 @@
-name: Convert and Push to Docs Repo
+name: Convert and Update Markdown
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ main ]
 
 jobs:
-  convert-and-push:
+  convert-and-update:
     runs-on: ubuntu-latest
     steps:
-      # Checkout source repo
-      - name: Checkout code-examples
-        uses: actions/checkout@v4
+      # Checkout main branch (source files)
+      - uses: actions/checkout@v4
+        with:
+          ref: main
 
-      # Set up Python + dependencies
+      # Set up Python
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
+      # Install dependencies
       - name: Install dependencies
         run: |
           pip install jupyter jupytext nbconvert
 
-      # Convert .ipynb to .ipynb.md (keeping original extension)
-      - name: Convert notebooks to Markdown
+      # Convert files to markdown
+      - name: Convert to Markdown
         run: |
-          find . -name '*.ipynb' -exec jupytext --to md --opt comment_magics=true {} \;
-
-      # Convert .py to .md (regular markdown)
-      - name: Convert Python scripts to Markdown
-        run: |
-          find . -name '*.py' ! -name '*test*.py' -exec bash -c '
+          # Convert notebooks
+          find . -name '*.ipynb' -exec jupyter nbconvert --to markdown --no-execute {} \;
+          
+          # Convert Python files
+          find . -name '*.py' ! -name 'config.json' -exec bash -c '
             echo "\`\`\`python" > "{}.md"
             cat "{}" >> "{}.md"
             echo "\`\`\`" >> "{}.md"
           ' \;
 
-      # Prepare files for target directory
-      - name: Prepare docs/code_examples
+      # Checkout markdown branch and update files
+      - name: Update markdown branch
         run: |
-          mkdir -p docs/code_examples
-          # Copy all markdown files (both .ipynb.md and .md) plus _category_.json
-          find . \( -name '*.ipynb.md' -o -name '*.md' -o -name '_category_.json' \) ! -name 'README.md' -exec bash -c '
-            target_path="docs/code_examples/${1#./}"
-            mkdir -p "$(dirname "$target_path")"
-            cp "$1" "$target_path"
-          ' _ {} \;
-
-      # Push changes
-      - name: Push to brett-van-tussler.github.io
-        run: |
-          cd docs/code_examples
-          git init
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          git remote add origin https://${{ secrets.BRETTVANTUSSLER_GITHUB_IO_DESTINATION }}@github.com/brett-van-tussler/brett-van-tussler.github.io.git
-          git checkout -b main
+          
+          # Checkout markdown branch
+          git fetch origin markdown || true
+          if git show-ref --verify --quiet refs/remotes/origin/markdown; then
+            git checkout markdown
+            git pull origin markdown
+          else
+            git checkout --orphan markdown
+            git rm -rf --quiet .  # Only runs for new branch
+          fi
+          
+          # Copy only markdown files and config.json
+          find ../main -name '*.md' -exec cp --parents {} . \;
+          cp ../main/config.json .
+          
+          # Commit changes
           git add .
-          git commit -m "Auto-update code examples from code-examples repo"
-          git push origin main --force
+          if git diff-index --quiet HEAD --; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update markdown files [auto]"
+            git push origin markdown
+          fi
