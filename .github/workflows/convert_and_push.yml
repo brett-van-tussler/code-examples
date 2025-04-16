@@ -11,6 +11,7 @@ jobs:
       # Checkout main branch (source files)
       - uses: actions/checkout@v4
         with:
+          path: 'source'
           ref: main
 
       # Set up Python
@@ -27,10 +28,8 @@ jobs:
       # Convert files to markdown
       - name: Convert to Markdown
         run: |
-          # Convert notebooks
+          cd source
           find . -name '*.ipynb' -exec jupyter nbconvert --to markdown --no-execute {} \;
-          
-          # Convert Python files
           find . -name '*.py' ! -name 'config.json' -exec bash -c '
             echo "\`\`\`python" > "{}.md"
             cat "{}" >> "{}.md"
@@ -43,21 +42,17 @@ jobs:
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
           
-          # Checkout markdown branch
-          git fetch origin markdown || true
-          if git show-ref --verify --quiet refs/remotes/origin/markdown; then
-            git checkout markdown
-            git pull origin markdown
-          else
-            git checkout --orphan markdown
-            git rm -rf --quiet .  # Only runs for new branch
-          fi
+          # Checkout markdown branch in a separate directory
+          git clone --branch markdown --single-branch https://github.com/brett-van-tussler/code-examples.git markdown || \
+            git clone https://github.com/brett-van-tussler/code-examples.git markdown && \
+            (cd markdown && git checkout --orphan markdown)
           
           # Copy only markdown files and config.json
-          find ../main -name '*.md' -exec cp --parents {} . \;
-          cp ../main/config.json .
+          find source -name '*.md' -exec cp --parents {} markdown \;
+          cp source/config.json markdown/
           
           # Commit changes
+          cd markdown
           git add .
           if git diff-index --quiet HEAD --; then
             echo "No changes to commit"
