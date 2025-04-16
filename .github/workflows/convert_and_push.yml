@@ -20,42 +20,42 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install jupyter nbconvert
+          pip install jupyter jupytext nbconvert
 
-      # Convert .ipynb to .md
+      # Convert .ipynb to .ipynb.md (keeping original extension)
       - name: Convert notebooks to Markdown
         run: |
-          find . -name '*.ipynb' -exec jupyter nbconvert --to markdown {} \;
+          find . -name '*.ipynb' -exec jupytext --to md --opt comment_magics=true {} \;
 
-      # (Optional) Convert .py to .md with syntax highlighting
+      # Convert .py to .md (regular markdown)
       - name: Convert Python scripts to Markdown
         run: |
-          find . -name '*.py' -exec bash -c 'echo "\`\`\`python\n$(cat {})\n\`\`\`" > {}.md' \;
-
-      # Clone destination repo (your GitHub Pages repo)
-      - name: Clone destination repo
-        run: |
-          git clone https://github.com/brett-van-tussler/brett-van-tussler.github.io.git
-
-
-      # Copy converted files to /docs/code_examples/
-      - name: Copy files to destination
-        run: |
-          # Clear only the code_examples subfolder (preserves other docs)
-          rm -rf brett-van-tussler.github.io/docs/code_examples/*
-          # Copy with folder structure
-          find . -name '*.md' -exec bash -c '
-            target_dir="brett-van-tussler.github.io/docs/code_examples/$(dirname {})"
-            mkdir -p "$target_dir"
-            cp {} "$target_dir/"
+          find . -name '*.py' ! -name '*test*.py' -exec bash -c '
+            echo "\`\`\`python" > "{}.md"
+            cat "{}" >> "{}.md"
+            echo "\`\`\`" >> "{}.md"
           ' \;
 
-      # Push changes
-      - name: Commit and push
+      # Prepare files for target directory
+      - name: Prepare docs/code_examples
         run: |
-          cd brett-van-tussler.github.io
+          mkdir -p docs/code_examples
+          # Copy all markdown files (both .ipynb.md and .md) plus _category_.json
+          find . \( -name '*.ipynb.md' -o -name '*.md' -o -name '_category_.json' \) ! -name 'README.md' -exec bash -c '
+            target_path="docs/code_examples/${1#./}"
+            mkdir -p "$(dirname "$target_path")"
+            cp "$1" "$target_path"
+          ' _ {} \;
+
+      # Push changes
+      - name: Push to brett-van-tussler.github.io
+        run: |
+          cd docs/code_examples
+          git init
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          git add docs/code_examples/
+          git remote add origin https://${{ secrets.BRETTVANTUSSLER_GITHUB_IO_DESTINATION }}@github.com/brett-van-tussler/brett-van-tussler.github.io.git
+          git checkout -b main
+          git add .
           git commit -m "Auto-update code examples from code-examples repo"
-          git push https://${{ secrets.BRETTVANTUSSLER_GITHUB_IO_DESTINATION }}@github.com/brett-van-tussler/brett-van-tussler.github.io.git main
+          git push origin main --force
