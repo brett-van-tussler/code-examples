@@ -3,9 +3,6 @@ from itertools import combinations
 from collections import Counter
 
 def generate_schedule(num_teams):
-    # markdown branch
-    #if num_teams != 9:
-    #    raise ValueError("This scheduler is designed specifically for 9 teams")
     
     # Create list of teams
     teams = [f"Team {i+1}" for i in range(num_teams)]

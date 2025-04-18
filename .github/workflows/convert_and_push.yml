@@ -83,63 +83,11 @@ jobs:
             echo "No changes to commit"
           fi
           git checkout main
-
-      - name: Checkout docs repository
-        id: docs-repo-ch
-        uses: actions/checkout@v4
-        with:
-          repository: brett-van-tussler/brett-van-tussler.github.io
-          path: docs-repo
-          token: ${{ secrets.GITHUB_TOKEN }}  # Try using the default token first
-          persist-credentials: true
-
-      - name: Debug repository access
+      - name: Trigger docs repo workflow
         env:
-          GH_DEBUG_TOKEN: ${{ secrets.CODE_EXAMPLES }}
+          GH_PAT: ${{ secrets.CODE_EXAMPLES }}
         run: |
-          if [ -z "$GH_DEBUG_TOKEN" ]; then
-            echo "Token is empty!"
-            exit 1
-          fi
-          
-          echo "Token length: ${#GH_DEBUG_TOKEN}"
-          echo "Testing repository access with token..."
-          curl -s -H "Authorization: Bearer $GH_DEBUG_TOKEN" \
-               -H "Accept: application/vnd.github.v3+json" \
-               https://api.github.com/user
-
-      - name: Check token status
-        run: |
-          echo "Checking token status..."
-          if [ -n "${{ secrets.BRETT_VAN_TUSSLER_GITHUB_IO_TOKEN }}" ]; then
-            echo "✓ BRETT_VAN_TUSSLER_GITHUB_IO_TOKEN exists"
-          else
-            echo "✗ BRETT_VAN_TUSSLER_GITHUB_IO_TOKEN is missing"
-            exit 1
-          fi
-
-      - name: Sync to docs repository
-        run: |
-          mkdir -p docs-repo/docs/code-examples
-          
-          # Sync markdown files (delete removed files)
-          rsync -r --delete --exclude='.git' \
-            --include='*.md' --include='_category_.json' --exclude='*' \
-            ./ docs-repo/docs/code-examples/
-
-      - name: Commit docs changes
-        working-directory: docs-repo
-        env:
-          GH_TOKEN: ${{ secrets.BRETT_VAN_TUSSLER_GITHUB_IO_TOKEN }}  # Use the correct token
-        run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git remote set-url origin https://x-access-token:${GH_TOKEN}@github.com/brett-van-tussler/brett-van-tussler.github.io.git
-          
-          git add --all
-          if ! git diff-index --quiet HEAD --; then
-            git commit -m "Update code examples [auto]"
-            git push
-          else
-            echo "No changes to docs repository"
-          fi
+          curl -X POST https://api.github.com/repos/brett-van-tussler/brett-van-tussler.github.io/dispatches \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token ${GH_PAT}" \
+            -d '{"event_type": "pull_code_example_markdowns"}'
